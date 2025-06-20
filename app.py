@@ -1,8 +1,7 @@
 import gradio as gr
 from dotenv import load_dotenv
 from langchain_community.chat_message_histories import ChatMessageHistory
-from badminton_utils import search_cached_answer_badminton, store_response_in_pinecone_badminton
-import time
+from badminton_utils import search_cached_answer_badminton, store_response_in_pinecone_badminton, store_response_in_pinecone
 import signal
 import sys
 from badminton_engine import chat_badminton_simple, get_badminton_index
@@ -49,8 +48,8 @@ def respond_badminton(message, chat_history):
     # cached_result = {"found": False}
     print(f"[BADMINTON] キャッシュ検索結果: {cached_result}")
 
-    if cached_result.get("found"):        
-        bot_message = cached_result["answer"]
+    if cached_result.get("found"):
+        bot_message = cached_result.get("text", "") or cached_result.get("answer") or "回答が見つかりませんでした"
         print(f"[BADMINTON] キャッシュヒット！(類似度: {cached_result.get('similarity_score', 0):.3f}, ID: {cached_result.get('vector_id', 'N/A')})")
         print(f"[BADMINTON] キャッシュ回答長: {len(bot_message)}文字")
     else:
@@ -60,8 +59,8 @@ def respond_badminton(message, chat_history):
         # プロンプト作成
         print("[BADMINTON] プロンプト作成中...")
         prompt = f"""
-        あなたはバドミントンサークル「鶯（うぐいす）」の親しみやすいアシスタントです。
-        サークルメンバーや参加希望者からの質問に、自然で親切な口調で回答してください。
+        あなたはバドミントンサークル「鶯（うぐいす）」のアシスタントです。
+        サークルメンバーや参加希望者からの質問に、自然な口調で回答してください。
 
         ## 回答の基本
         - 質問に直接的に答えることを最優先にする
@@ -134,7 +133,7 @@ def respond_badminton(message, chat_history):
     print(f"[BADMINTON] 更新後履歴件数: {len(chat_history)}")
 
     # 履歴長制限
-    MAX_HISTORY_LENGTH = 6  # バドミントンチャットは履歴を短めに保持
+    MAX_HISTORY_LENGTH = 4  # バドミントンチャットは履歴を短めに保持
     if len(chat_history) > MAX_HISTORY_LENGTH:
         removed_count = len(chat_history) - MAX_HISTORY_LENGTH
         chat_history = chat_history[-MAX_HISTORY_LENGTH:]

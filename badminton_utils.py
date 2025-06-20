@@ -5,16 +5,52 @@ from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 import os
 from typing import Optional, Dict, Any, List
-from chatbot_utils import store_response_in_pinecone
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from uuid import uuid4
+import time
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import json
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
+embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+enhancement_llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+
+CACHE_INDEX_NAME = "badminton-cache"
+
 
 client = OpenAI()
 
 def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
     try:
         system_prompt = """
-        あなたはバドミントンに詳しいAIアシスタントです。
-        バドミントンサークル向けの質問を分析してください。
-        技術、戦術、道具、練習方法などの観点で分析してください。
+        あなたは、バドミントンサークル「鶯（うぐいす）」専属のAIアシスタントです。
+
+        ユーザーからの質問を以下の観点で総合的に分析し、
+        その主旨を要約し、関連するキーワード、カテゴリ、難易度を特定してください。
+
+        【分析観点】
+        - 参加資格（年齢・学生・子供など）
+        - 参加形式（1回のみ・親子・友人同伴・途中参加）
+        - レベル（初心者・経験者・ブランクあり）
+        - 練習内容・雰囲気（形式・人数・ゲーム・指導）
+        - 費用・支払い方法（現金・PayPay・キャンセル）
+        - 安全性や保険・撮影などの配慮
+        - 初心者向けの「Boot Camp15」関連
+
+        【出力形式（JSONのみ）】
+        {
+        "summary": "質問の主旨（30文字以内）",
+        "keywords": ["キーワード1", "キーワード2", "キーワード3"],
+        "category": "カテゴリ名（例：参加資格、親子参加、初心者、費用、雰囲気、その他）",
+        "difficulty_level": "初級 / 中級 / 上級"
+        }
+
+        説明文や解説は不要です。JSON形式でのみ出力してください。
         """
 
         response = client.chat.completions.create(
@@ -47,99 +83,102 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
             "timestamp": datetime.now().isoformat()
         }
 
-def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
-    try:
-        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        index_name = 'badminton-cache'
-        index = pc.Index(index_name)
+# def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
+#     try:
+#         pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
+#         index_name = 'badminton-cache'
+#         index = pc.Index(index_name)
 
-        # 🔽 要約（summary）を取得
-        enhanced_data = enhance_with_ai_badminton(question)
-        summary = enhanced_data.get("summary", question)
+#         # 🔽 要約（summary）を取得
+#         enhanced_data = enhance_with_ai_badminton(question)
+#         summary = enhanced_data.get("summary", question)
 
-        # 🔽 要約を使ってベクトルを生成
-        question_embedding = get_embedding_badminton(summary)
+#         # 🔽 要約を使ってベクトルを生成
+#         question_embedding = get_embedding_badminton(summary)
 
-        if not question_embedding:
-            raise ValueError("埋め込みベクトルが空です")
+#         if not question_embedding:
+#             raise ValueError("埋め込みベクトルが空です")
 
-        filter_condition = {"system_type": "badminton"}
+#         filter_condition = {"system_type": "badminton"}
 
-        search_results = index.query(
-            vector=question_embedding,
-            filter=filter_condition,
-            top_k=5,
-            include_metadata=True
-        )
+#         search_results = index.query(
+#             vector=question_embedding,
+#             filter=filter_condition,
+#             top_k=5,
+#             include_metadata=True
+#         )
 
-        print(f"[BADMINTON] キャッシュ検索実行: {len(search_results.matches)} 件取得")
+#         print(f"[BADMINTON] キャッシュ検索実行: {len(search_results.matches)} 件取得")
 
-        if search_results.matches and search_results.matches[0].score >= similarity_threshold:
-            best_match = search_results.matches[0]
-            cached_answer = best_match.metadata.get('answer', '')
+#         if search_results.matches and search_results.matches[0].score >= similarity_threshold:
+#             best_match = search_results.matches[0]
+#             cached_answer = best_match.metadata.get('answer', '')
 
-            print(f"[BADMINTON] キャッシュヒット！(類似度: {best_match.score:.3f}, ID: {best_match.id})")
+#             print(f"[BADMINTON] キャッシュヒット！(類似度: {best_match.score:.3f}, ID: {best_match.id})")
 
-            return {
-                "found": True,
-                "answer": cached_answer,
-                "similarity_score": best_match.score,
-                "category": best_match.metadata.get('category'),
-                "difficulty_level": best_match.metadata.get('difficulty_level'),
-                "cached_timestamp": best_match.metadata.get('timestamp'),
-                "vector_id": best_match.id
-            }
-        else:
-            print(f"[BADMINTON] キャッシュミス（閾値: {similarity_threshold}）")
-            return {"found": False}
+#             return {
+#                 "found": True,
+#                 "answer": cached_answer,
+#                 "similarity_score": best_match.score,
+#                 "category": best_match.metadata.get('category'),
+#                 "difficulty_level": best_match.metadata.get('difficulty_level'),
+#                 "cached_timestamp": best_match.metadata.get('timestamp'),
+#                 "vector_id": best_match.id
+#             }
+#         else:
+#             print(f"[BADMINTON] キャッシュミス（閾値: {similarity_threshold}）")
+#             return {"found": False}
 
-    except Exception as e:
-        print(f"[ERROR] バドミントンキャッシュ検索失敗: {e}")
-        return {"found": False}
+#     except Exception as e:
+#         print(f"[ERROR] バドミントンキャッシュ検索失敗: {e}")
+#         return {"found": False}
     
-def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
+def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.80) -> Dict[str, Any]:
     try:
-        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        index_name = 'badminton-cache'
-        index = pc.Index(index_name)
+        print("[BADMINTON] Pineconeキャッシュ検索開始...")
 
+        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
+        index = pc.Index("badminton-cache")
         question_embedding = get_embedding_badminton(question)
 
         if not question_embedding:
-            raise ValueError("埋め込みベクトルが空です")
-
-        filter_condition = {"system_type": "badminton"}
+            raise ValueError("埋め込みベクトルが生成されませんでした")
 
         search_results = index.query(
             vector=question_embedding,
-            filter=filter_condition,
             top_k=5,
             include_metadata=True
         )
 
+        print(f"[BADMINTON] 類似度スコア一覧:")
+        for i, match in enumerate(search_results.matches):
+            question_preview = match.metadata.get("question", "")[:30]
+            print(f"  {i+1}. Score: {match.score:.3f}, ID: {match.id}, Question: '{question_preview}...'")
+
         print(f"[BADMINTON] キャッシュ検索実行: {len(search_results.matches)} 件取得")
+
+        for i, match in enumerate(search_results.matches):
+            print(f"  - 候補{i+1}: ID={match.id}, 類似度={match.score:.3f}, 質問={match.metadata.get('question', '')[:20]}...")
 
         if search_results.matches and search_results.matches[0].score >= similarity_threshold:
             best_match = search_results.matches[0]
-            cached_answer = best_match.metadata.get('answer', '')
-
-            print(f"[BADMINTON] キャッシュヒット！(類似度: {best_match.score:.3f}, ID: {best_match.id})")
+            print(f"[BADMINTON] キャッシュヒット！（類似度: {best_match.score:.3f}, ID: {best_match.id}）")
 
             return {
                 "found": True,
-                "answer": cached_answer,
+                "text": best_match.metadata.get('text', ''),
                 "similarity_score": best_match.score,
                 "category": best_match.metadata.get('category'),
                 "difficulty_level": best_match.metadata.get('difficulty_level'),
                 "cached_timestamp": best_match.metadata.get('timestamp'),
                 "vector_id": best_match.id
             }
-        else:
-            print(f"[BADMINTON] キャッシュミス（閾値: {similarity_threshold}）")
-            return {"found": False}
+
+        print(f"[BADMINTON] キャッシュミス（しきい値 {similarity_threshold:.2f} 未満）")
+        return {"found": False}
 
     except Exception as e:
-        print(f"[ERROR] バドミントンキャッシュ検索失敗: {e}")
+        print(f"[ERROR] キャッシュ検索中にエラー発生: {e}")
         return {"found": False}
 
 def get_badminton_statistics() -> Dict[str, Any]:
@@ -234,11 +273,9 @@ def extract_keywords_badminton(question_text: str) -> List[str]:
 
 def get_embedding_badminton(text: str) -> list:
     try:
-        enhanced_text = f"バドミントン: {text}"
-
         response = client.embeddings.create(
             model="text-embedding-3-small",
-            input=[enhanced_text]
+            input=[text]
         )
 
         if not response.data or not response.data[0].embedding:
@@ -480,3 +517,163 @@ def store_response_in_pinecone_badminton(question: str, answer: str) -> bool:
         answer=answer,
         index_name="badminton-cache"
     )
+
+def store_response_in_pinecone(question, answer, index_name=CACHE_INDEX_NAME):
+    """
+    質問と回答のペアをPineconeに保存する関数。AIで拡張した情報も保存。
+    """
+    try:
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+
+        # インデックスの接続確認
+        try:
+            pinecone_index = pc.Index(index_name)
+            print(f"インデックス {index_name} に接続しました")
+        except Exception as e:
+            print(f"インデックス {index_name} 接続失敗: {e}")
+            return False
+
+        # AI拡張情報の取得
+        enhanced_data = enhance_with_ai(question, answer)
+
+        # ベクトル生成（ここで summary ではなく question を使う）
+        question_embedding = embedding_model.embed_query(question)
+        print(f"質問の埋め込みベクトル生成完了 (長さ: {len(question_embedding)})")
+
+        # 保存前にキャッシュ類似チェック（重複防止）
+        search_results = pinecone_index.query(
+            vector=question_embedding,
+            top_k=5,
+            include_metadata=True
+        )
+        for match in search_results.matches:
+            if match.score >= 0.95:
+                print(f"[INFO] 類似質問が既に存在（ID: {match.id}, Score: {match.score:.3f}）→ 保存をスキップ")
+                return True
+
+        # 一意IDの生成
+        unique_id = str(uuid4())
+
+        # メタデータの準備（summary は別フィールドに分ける）
+        metadata = {
+            "text": answer,
+            "question": question,  # ← ここをsummaryではなくquestionに
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "type": "chatbot_response",
+            "question_summary": enhanced_data.get("question_summary", ""),
+            "answer_summary": enhanced_data.get("answer_summary", ""),
+            "alternative_questions": enhanced_data.get("alternative_questions", []),
+            "keywords": enhanced_data.get("keywords", []),
+            "category": enhanced_data.get("category", "未分類")
+        }
+
+        # アップサート
+        pinecone_index.upsert([
+            {
+                "id": unique_id,
+                "values": question_embedding,
+                "metadata": metadata
+            }
+        ])
+        print(f"オリジナル質問ベクトルをアップサート: {unique_id}")
+
+        # 類義語の処理（必要であれば）
+        alt_questions = enhanced_data.get("alternative_questions", [])
+        original_embedding = np.array(question_embedding).reshape(1, -1)
+
+        if alt_questions:
+            print("===== 類義語の類似度分析 =====")
+            for i, alt_question in enumerate(alt_questions):
+                if alt_question and len(alt_question) > 5:
+                    print(f"類義語 {i+1}: '{alt_question}'")
+
+                    alt_embedding = embedding_model.embed_query(alt_question)
+                    similarity = cosine_similarity(original_embedding, [alt_embedding])[0][0]
+                    print(f"  元の質問との類似度: {similarity:.4f}")
+
+                    pinecone_index.upsert([
+                        {
+                            "id": f"{unique_id}-alt-{i}",
+                            "values": alt_embedding,
+                            "metadata": metadata
+                        }
+                    ])
+                else:
+                    print(f"類義語 {i+1}: '{alt_question}' - スキップ（短すぎ）")
+
+        print(f"拡張Q&AをIDで保存しました: {unique_id} (インデックス: {index_name})")
+        return True
+
+    except Exception as e:
+        print(f"Pineconeへの応答保存エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+def enhance_with_ai(question: str, answer: str) -> dict:
+    try:
+        print("===== AI拡張処理開始 =====")
+        print(f"元の質問: {question}")
+
+        prompt = f"""
+以下のバドミントンに関する質問と回答のペアに対して、次の拡張情報を生成してください:
+
+1. 質問の要約 (30文字以内)
+2. 回答の要約 (50文字以内)
+3. 質問のキーワード (5つまで)
+4. 回答のカテゴリ（例: 練習方法、道具、戦術、ルール、体験、その他）
+
+質問: {question}
+
+回答: {answer}
+
+出力は以下のJSON形式で返してください:
+{{
+  "question_summary": "質問の要約",
+  "answer_summary": "回答の要約",
+  "keywords": ["キーワード1", "キーワード2", "キーワード3"],
+  "category": "カテゴリ"
+}}
+
+出力はJSON形式のみにしてください。説明などは不要です。
+        """
+
+        # LLM応答取得
+        response = enhancement_llm.invoke(prompt)
+
+        # content 抽出
+        raw = getattr(response, "content", "").strip()
+        print("=== LLM応答（raw） ===")
+        print(raw)
+        print("======================")
+
+        # ✅ コードブロック除去処理
+        if raw.startswith("```json"):
+            raw = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.DOTALL)
+
+        # JSONとしてパース
+        if not raw or not raw.strip().startswith("{"):
+            raise ValueError("LLMから空または無効なJSONが返されました")
+
+        enhanced_data = json.loads(raw)
+
+        # 結果表示
+        print("===== AI拡張結果 =====")
+        print(f"  要約: {enhanced_data.get('question_summary', '')}")
+        print(f"  キーワード: {enhanced_data.get('keywords', [])}")
+        print(f"  カテゴリ: {enhanced_data.get('category', '')}")
+        print("===== AI拡張処理完了 =====")
+
+        # タイムスタンプ付加
+        enhanced_data["timestamp"] = datetime.now().isoformat()
+        return enhanced_data
+
+    except Exception as e:
+        print(f"[ERROR] AI拡張処理失敗: {e}")
+        return {
+            "question_summary": question[:30] + "…" if len(question) > 30 else question,
+            "answer_summary": answer[:50] + "…" if len(answer) > 50 else answer,
+            "keywords": [],
+            "category": "その他",
+            "timestamp": datetime.now().isoformat()
+        }

@@ -107,20 +107,11 @@ def chat_badminton_simple(prompt: str, history: ChatMessageHistory, index) -> st
         if is_schedule_question and not schedule_context and not DYNAMODB_AVAILABLE:
             final_response += "\n\n💡 練習スケジュールの詳細については、サークル管理者にお問い合わせください。"
 
-        # 回答の保存（スケジュール質問でなければ）
+        # 回答の保存（スケジュール質問のときは保存スキップメッセージだけ出力）
         if is_schedule_question:
-            print("[SKIP] スケジュール質問のため回答の保存をスキップします")
-        else:
-            try:
-                from badminton_utils import store_response_in_pinecone_badminton
-                store_response_in_pinecone_badminton(prompt, final_response)
-                print("[INFO] 回答をPineconeに保存しました")
-            except Exception as e:
-                print(f"[WARN] 回答の保存中にエラーが発生しました: {e}")
-
-        print(f"[BADMINTON] DynamoDB統合版処理完了: {time.time() - start_time:.2f}秒")
-        return final_response
-
+            print("[SKIP] スケジュール質問のため回答の保存をスキップします") 
+        return final_response 
+    
     except Exception as e:
         print(f"[ERROR] バドミントンチャット処理失敗: {e}")
         return "申し訳ございません、現在回答を生成できません。しばらくしてから再度お試しください。"
