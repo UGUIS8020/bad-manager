@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 import os
 from typing import Optional, Dict, Any, List
+from chatbot_utils import store_response_in_pinecone
 
 client = OpenAI()
 
