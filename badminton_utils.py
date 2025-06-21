@@ -12,6 +12,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
 from dotenv import load_dotenv
+import re
 
 
 load_dotenv()
@@ -83,55 +84,6 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
             "timestamp": datetime.now().isoformat()
         }
 
-# def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
-#     try:
-#         pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-#         index_name = 'badminton-cache'
-#         index = pc.Index(index_name)
-
-#         # 🔽 要約（summary）を取得
-#         enhanced_data = enhance_with_ai_badminton(question)
-#         summary = enhanced_data.get("summary", question)
-
-#         # 🔽 要約を使ってベクトルを生成
-#         question_embedding = get_embedding_badminton(summary)
-
-#         if not question_embedding:
-#             raise ValueError("埋め込みベクトルが空です")
-
-#         filter_condition = {"system_type": "badminton"}
-
-#         search_results = index.query(
-#             vector=question_embedding,
-#             filter=filter_condition,
-#             top_k=5,
-#             include_metadata=True
-#         )
-
-#         print(f"[BADMINTON] キャッシュ検索実行: {len(search_results.matches)} 件取得")
-
-#         if search_results.matches and search_results.matches[0].score >= similarity_threshold:
-#             best_match = search_results.matches[0]
-#             cached_answer = best_match.metadata.get('answer', '')
-
-#             print(f"[BADMINTON] キャッシュヒット！(類似度: {best_match.score:.3f}, ID: {best_match.id})")
-
-#             return {
-#                 "found": True,
-#                 "answer": cached_answer,
-#                 "similarity_score": best_match.score,
-#                 "category": best_match.metadata.get('category'),
-#                 "difficulty_level": best_match.metadata.get('difficulty_level'),
-#                 "cached_timestamp": best_match.metadata.get('timestamp'),
-#                 "vector_id": best_match.id
-#             }
-#         else:
-#             print(f"[BADMINTON] キャッシュミス（閾値: {similarity_threshold}）")
-#             return {"found": False}
-
-#     except Exception as e:
-#         print(f"[ERROR] バドミントンキャッシュ検索失敗: {e}")
-#         return {"found": False}
     
 def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.80) -> Dict[str, Any]:
     try:
