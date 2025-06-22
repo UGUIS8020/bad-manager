@@ -10,9 +10,6 @@ from datetime import datetime
 
 from email_notification import send_email_async
 
-
-
-
 load_dotenv()
 
 # グローバル変数
@@ -157,8 +154,6 @@ def respond_badminton(message, chat_history):
     print("[BADMINTON] 戻り値: ('', updated_chat_history)")
     print("=" * 60)
 
-    
-
     return "", chat_history
 
 
@@ -181,29 +176,169 @@ def main():
         badminton_index = get_badminton_index()
         print("バドミントンインデックス初期化完了")
         
+        # スマホ最適化CSS
+        mobile_css = """
+        /* 全体のモバイル最適化 */
+        .gradio-container {
+            background: linear-gradient(135deg, #8ea604, #7a8f03) !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        /* モバイルでのレスポンシブ調整 */
+        @media (max-width: 768px) {
+            .gradio-container {
+                padding: 8px !important;
+            }
+            
+            /* ヘッダー部分をコンパクトに */
+            .markdown h2, .markdown h3 {
+                font-size: 1.2rem !important;
+                margin: 8px 0 !important;
+                text-align: center !important;
+                color: white !important;
+                text-shadow: 1px 1px 2px rgba(0,0,0,0.3) !important;
+            }
+            
+            /* チャットボット領域の最適化 */
+            .chatbot {
+                height: 60vh !important;
+                min-height: 400px !important;
+                border-radius: 12px !important;
+                border: 2px solid rgba(255,255,255,0.2) !important;
+                background: rgba(255,255,255,0.95) !important;
+            }
+            
+            /* メッセージバブルの調整 */
+            .chatbot .message {
+                margin: 8px !important;
+                padding: 12px !important;
+                border-radius: 12px !important;
+                font-size: 0.9rem !important;
+                line-height: 1.4 !important;
+            }
+            
+            /* 入力欄の最適化 */
+            .textbox {
+                border-radius: 25px !important;
+                border: 2px solid rgba(255,255,255,0.3) !important;
+                background: rgba(255,255,255,0.9) !important;
+                font-size: 1rem !important;
+                padding: 12px 16px !important;
+            }
+            
+            /* 入力欄のフォーカス時 */
+            .textbox:focus {
+                border-color: rgba(255,255,255,0.8) !important;
+                box-shadow: 0 0 10px rgba(255,255,255,0.3) !important;
+            }
+            
+            /* ラベルの調整 */
+            .textbox label {
+                color: white !important;
+                font-weight: bold !important;
+                text-shadow: 1px 1px 2px rgba(0,0,0,0.3) !important;
+                margin-bottom: 8px !important;
+            }
+            
+            /* 送信ボタンエリアの調整 */
+            .submit-btn {
+                background: rgba(255,255,255,0.2) !important;
+                border: 2px solid rgba(255,255,255,0.3) !important;
+                border-radius: 20px !important;
+                color: white !important;
+                font-weight: bold !important;
+                padding: 10px 20px !important;
+                margin-top: 8px !important;
+            }
+        }
+        
+        /* ダークモード対応 */
+        .dark .gradio-container {
+            background: linear-gradient(135deg, #6b7a02, #5a6902) !important;
+        }
+        
+        /* アクセシビリティ改善 */
+        .textbox input {
+            touch-action: manipulation !important;
+            -webkit-appearance: none !important;
+        }
+        
+        /* バドミントンテーマカラー */
+        .chatbot .message.user {
+            background: linear-gradient(135deg, rgba(142, 166, 4, 0.3), rgba(122, 143, 3, 0.4)) !important;
+            color: #2d3748 !important;
+            border: 1px solid rgba(142, 166, 4, 0.5) !important;
+        }
+        
+        .chatbot .message.bot {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef) !important;
+            color: #2d3748 !important;
+        }
+        
+        /* スクロールバーの調整 */
+        .chatbot::-webkit-scrollbar {
+            width: 6px !important;
+        }
+        
+        .chatbot::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1) !important;
+        }
+        
+        .chatbot::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3) !important;
+            border-radius: 3px !important;
+        }
+        """
+        
         # Gradioアプリの作成
-        with gr.Blocks(css=".gradio-container {background-color:rgb(142, 166, 4)}") as app:
-            gr.Markdown("## 鶯 アシスタント v2.0")
-            gr.Markdown("### ご質問・ご相談はこちらでなんでもお答えいたします")        
+        with gr.Blocks(css=mobile_css, title="鶯 バドミントンサークル") as app:
+            # ヘッダー
+            gr.Markdown("## 鶯 アシスタント")
+            gr.Markdown("### 鶯のことなら何でもお答えします！")
             
-            
+            # チャットボット（モバイル最適化）
             chatbot = gr.Chatbot(
+                value=[],
                 autoscroll=True,
-                height=500,
-                type="messages"
+                height=450,  # スマホでは少し小さめに
+                type="messages",
+                show_label=False,
+                container=True,
+                elem_classes=["chatbot"]
             )
             
-            msg = gr.Textbox(
-                placeholder="鶯に関することなら何でもお気軽にどうぞ！",
-                label="質問・相談"
-            )
+            # 入力欄（モバイル最適化）
+            with gr.Row():
+                msg = gr.Textbox(
+                    placeholder="練習時間、場所、参加方法など何でもどうぞ！",
+                    label="💬 ご質問・ご相談",
+                    lines=1,
+                    max_lines=3,
+                    show_label=True,
+                    container=True,
+                    scale=4,
+                    elem_classes=["textbox"]
+                )
             
-            # clear = gr.ClearButton([msg, chatbot])
+            # クリアボタン（スマホでは目立たないように）
+            with gr.Row():
+                clear_btn = gr.ClearButton(
+                    [msg, chatbot], 
+                    value="🗑️ クリア",
+                    size="sm",
+                    variant="secondary",
+                    elem_classes=["clear-btn"]
+                )
+            
+            # イベントハンドラ
             msg.submit(respond_badminton, [msg, chatbot], [msg, chatbot])
         
         print("バドミントンチャット: http://127.0.0.1:7860")
         print("=" * 60)
-        print("サーバーが起動しました")
+        print("スマホ最適化版で起動しました")
+        print("モバイルフレンドリーなUIでお楽しみください")
         print("Ctrl+C で終了")
 
         port = int(os.getenv("PORT", 7860))
@@ -212,7 +347,13 @@ def main():
             server_name="0.0.0.0", 
             server_port=port,
             quiet=False,
-            share=False
+            share=False,
+            # モバイル最適化のための追加設定
+            favicon_path=None,  # お好みでバドミントンアイコンを設定
+            app_kwargs={
+                "docs_url": None,  # API docs を非表示
+                "redoc_url": None  # ReDoc を非表示
+            }
         )
             
     except Exception as e:
