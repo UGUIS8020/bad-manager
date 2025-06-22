@@ -10,9 +10,6 @@ from datetime import datetime
 
 from email_notification import send_email_async
 
-
-
-
 load_dotenv()
 
 # グローバル変数

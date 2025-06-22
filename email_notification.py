@@ -119,18 +119,11 @@ def send_email_notification(question: str, user_info: Optional[dict] = None) -> 
 このメールは鶯バドミントンサークルのチャットボットから自動送信されています。
         """
         
-        # MIMEメッセージを作成
-        message = MIMEMultipart("alternative")
+        # MIMEメッセージをテキストのみで作成
+        message = MIMEText(text_body, "plain", "utf-8")
         message["Subject"] = subject
         message["From"] = default_sender if default_sender else sender_email
         message["To"] = notify_email
-        
-        # テキストとHTMLパートを追加
-        text_part = MIMEText(text_body, "plain", "utf-8")
-        html_part = MIMEText(html_body, "html", "utf-8")
-        
-        message.attach(text_part)
-        message.attach(html_part)
         
         # OCNメール用のSMTP接続
         print(f"[EMAIL] SMTP接続開始...")

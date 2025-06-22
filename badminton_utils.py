@@ -85,7 +85,7 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
         }
 
     
-def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.80) -> Dict[str, Any]:
+def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
     try:
         print("[BADMINTON] Pineconeキャッシュ検索開始...")
 
@@ -194,17 +194,28 @@ def extract_summary_badminton(response) -> str:
         return "バドミントンに関する質問"
 
 def extract_keywords_badminton(question_text: str) -> List[str]:
-    """
-    質問内容から重要なバドミントン関連キーワードをAIに抽出させる。
-    """
     try:
         followup = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "あなたは日本語のバドミントン専門アシスタントです。以下の質問から、重要なバドミントンに関連するキーワードを3〜5個抽出してください。質問の内容や意図を表すキーワードを選んでください。必ず以下の形式でのみ返してください：[\"キーワード1\", \"キーワード2\", \"キーワード3\"]"},
+                {"role": "system", "content": """あなたは日本語のバドミントン専門アシスタントです。
+
+質問から重要なキーワードを3〜5個抽出してください。以下の点に注意してください：
+
+1. 質問の具体的な意図を明確に区別してください：
+   - 場所関連: 「どこ」「場所」「会場」「体育館」「住所」「アクセス」
+   - 内容関連: 「どんな」「内容」「メニュー」「何をする」「練習内容」「プログラム」
+   - 時間関連: 「いつ」「曜日」「時間」「スケジュール」「日程」
+   - 費用関連: 「料金」「費用」「いくら」「お金」「参加費」
+   - 参加関連: 「初心者」「レベル」「条件」「年齢」「経験」
+   - 準備関連: 「持ち物」「ラケット」「シューズ」「服装」「用意」
+
+2. 汎用的すぎる単語（「バドミントン」「練習」「サークル」）は避け、より具体的な意図を表すキーワードを選んでください。
+
+3. 必ず以下の形式でのみ返してください：[\"キーワード1\", \"キーワード2\", \"キーワード3\"]"""},
                 {"role": "user", "content": f"この質問から重要なキーワードを抽出してください：\n\n{question_text}"}
             ],
-            temperature=0.2
+            temperature=0.1  # より一貫した結果のため低めに設定
         )
 
         import json
