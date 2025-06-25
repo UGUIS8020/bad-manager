@@ -85,7 +85,7 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
         }
 
     
-def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.85) -> Dict[str, Any]:
+def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.84) -> Dict[str, Any]:
     try:
         print("[BADMINTON] Pineconeキャッシュ検索開始...")
 
@@ -112,19 +112,25 @@ def search_cached_answer_badminton(question: str, similarity_threshold: float = 
         for i, match in enumerate(search_results.matches):
             print(f"  - 候補{i+1}: ID={match.id}, 類似度={match.score:.3f}, 質問={match.metadata.get('question', '')[:20]}...")
 
-        if search_results.matches and search_results.matches[0].score >= similarity_threshold:
-            best_match = search_results.matches[0]
-            print(f"[BADMINTON] キャッシュヒット！（類似度: {best_match.score:.3f}, ID: {best_match.id}）")
+        # ここにデバッグコードを挿入
+        if search_results.matches:
+            best_score = search_results.matches[0].score
+            print(f"[DEBUG] 最高スコア: {best_score}, しきい値: {similarity_threshold}")
+            print(f"[DEBUG] 比較結果: {best_score >= similarity_threshold}")
+            
+            if best_score >= similarity_threshold:
+                best_match = search_results.matches[0]
+                print(f"[BADMINTON] キャッシュヒット！（類似度: {best_match.score:.3f}, ID: {best_match.id}）")
 
-            return {
-                "found": True,
-                "text": best_match.metadata.get('text', ''),
-                "similarity_score": best_match.score,
-                "category": best_match.metadata.get('category'),
-                "difficulty_level": best_match.metadata.get('difficulty_level'),
-                "cached_timestamp": best_match.metadata.get('timestamp'),
-                "vector_id": best_match.id
-            }
+                return {
+                    "found": True,
+                    "text": best_match.metadata.get('text', ''),
+                    "similarity_score": best_match.score,
+                    "category": best_match.metadata.get('category'),
+                    "difficulty_level": best_match.metadata.get('difficulty_level'),
+                    "cached_timestamp": best_match.metadata.get('timestamp'),
+                    "vector_id": best_match.id
+                }
 
         print(f"[BADMINTON] キャッシュミス（しきい値 {similarity_threshold:.2f} 未満）")
         return {"found": False}
