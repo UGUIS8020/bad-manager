@@ -211,24 +211,22 @@ def send_email_notification(question: str, user_info: Optional[dict] = None) -> 
             return False
         
         # メール内容を作成
-        subject = f"🏸 鶯サークル - 新しい質問が届きました"
+        subject = f" 鶯サークル - 新しい質問が届きました"
         
         # テキスト版メール本文
         text_body = f"""
-🏸 バドミントンサークル「鶯」- 新しい質問
+バドミントン「鶯」- 新しい質問
 
-📝 質問内容:
+質問内容:
 {question}
 
-ℹ️ 詳細情報:
+ℹ詳細情報:
 ・受信時刻: {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}
 ・送信者: {user_info.get('ip', '不明') if user_info else '不明'}
 ・質問文字数: {len(question)}文字
 
-💬 チャットボットURL: http://127.0.0.1:7860
 
----
-このメールは鶯バドミントンサークルのチャットボットから自動送信されています。
+
         """
         
         # MIMEメッセージをテキストのみで作成
