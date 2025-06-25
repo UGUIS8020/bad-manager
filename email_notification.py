@@ -253,23 +253,36 @@ def send_email_notification(question: str, user_info: Optional[dict] = None) -> 
             server.login(sender_email, sender_password)
             print(f"[EMAIL] ログイン成功")
             
-            # ここが重要！送信結果を確認
-            result = server.sendmail(sender_email, notify_email, message.as_string())
-            
-            # 結果詳細確認
-            if result:
-                print(f"[EMAIL] 送信エラー: {result}")
-                server.quit()
+            # 送信結果を確認（詳細ログ追加）
+            try:
+                print(f"[EMAIL] sendmail実行開始...")
+                result = server.sendmail(sender_email, notify_email, message.as_string())
+                print(f"[EMAIL] sendmail実行完了")
+                
+                # 結果詳細確認
+                if result:
+                    print(f"[EMAIL] 送信エラー: {result}")
+                    print(f"[EMAIL] エラータイプ: {type(result)}")
+                    server.quit()
+                    return False
+                else:
+                    print("[EMAIL] SMTP受理成功（空の辞書）")
+                    
+            except Exception as sendmail_error:
+                print(f"[EMAIL] sendmail例外: {type(sendmail_error).__name__}: {sendmail_error}")
+                try:
+                    server.quit()
+                except:
+                    pass
                 return False
-            else:
-                print("[EMAIL] SMTP受理成功（空の辞書）")
                 
             # SMTP応答コード確認
             try:
+                print(f"[EMAIL] NOOP確認開始...")
                 noop_result = server.noop()
                 print(f"[EMAIL] 最後のSMTP応答: {noop_result}")
             except Exception as noop_e:
-                print(f"[EMAIL] NOOP応答確認失敗: {noop_e}")
+                print(f"[EMAIL] NOOP応答確認失敗: {type(noop_e).__name__}: {noop_e}")
             
             server.quit()
             print(f"[EMAIL] メール送信完了")
@@ -283,21 +296,34 @@ def send_email_notification(question: str, user_info: Optional[dict] = None) -> 
             server.login(sender_email, sender_password)
             print(f"[EMAIL] ログイン成功")
             
-            # 送信結果を確認
-            result = server.sendmail(sender_email, notify_email, message.as_string())
-            
-            if result:
-                print(f"[EMAIL] 送信エラー: {result}")
-                server.quit()
+            # 送信結果を確認（詳細ログ追加）
+            try:
+                print(f"[EMAIL] sendmail実行開始...")
+                result = server.sendmail(sender_email, notify_email, message.as_string())
+                print(f"[EMAIL] sendmail実行完了")
+                
+                if result:
+                    print(f"[EMAIL] 送信エラー: {result}")
+                    print(f"[EMAIL] エラータイプ: {type(result)}")
+                    server.quit()
+                    return False
+                else:
+                    print("[EMAIL] SMTP受理成功（空の辞書）")
+                    
+            except Exception as sendmail_error:
+                print(f"[EMAIL] sendmail例外: {type(sendmail_error).__name__}: {sendmail_error}")
+                try:
+                    server.quit()
+                except:
+                    pass
                 return False
-            else:
-                print("[EMAIL] SMTP受理成功（空の辞書）")
                 
             try:
+                print(f"[EMAIL] NOOP確認開始...")
                 noop_result = server.noop()
                 print(f"[EMAIL] 最後のSMTP応答: {noop_result}")
             except Exception as noop_e:
-                print(f"[EMAIL] NOOP応答確認失敗: {noop_e}")
+                print(f"[EMAIL] NOOP応答確認失敗: {type(noop_e).__name__}: {noop_e}")
             
             server.quit()
             print(f"[EMAIL] メール送信完了")
@@ -310,21 +336,34 @@ def send_email_notification(question: str, user_info: Optional[dict] = None) -> 
             server.login(sender_email, sender_password)
             print(f"[EMAIL] ログイン成功")
             
-            # 送信結果を確認
-            result = server.sendmail(sender_email, notify_email, message.as_string())
-            
-            if result:
-                print(f"[EMAIL] 送信エラー: {result}")
-                server.quit()
+            # 送信結果を確認（詳細ログ追加）
+            try:
+                print(f"[EMAIL] sendmail実行開始...")
+                result = server.sendmail(sender_email, notify_email, message.as_string())
+                print(f"[EMAIL] sendmail実行完了")
+                
+                if result:
+                    print(f"[EMAIL] 送信エラー: {result}")
+                    print(f"[EMAIL] エラータイプ: {type(result)}")
+                    server.quit()
+                    return False
+                else:
+                    print("[EMAIL] SMTP受理成功（空の辞書）")
+                    
+            except Exception as sendmail_error:
+                print(f"[EMAIL] sendmail例外: {type(sendmail_error).__name__}: {sendmail_error}")
+                try:
+                    server.quit()
+                except:
+                    pass
                 return False
-            else:
-                print("[EMAIL] SMTP受理成功（空の辞書）")
                 
             try:
+                print(f"[EMAIL] NOOP確認開始...")
                 noop_result = server.noop()
                 print(f"[EMAIL] 最後のSMTP応答: {noop_result}")
             except Exception as noop_e:
-                print(f"[EMAIL] NOOP応答確認失敗: {noop_e}")
+                print(f"[EMAIL] NOOP応答確認失敗: {type(noop_e).__name__}: {noop_e}")
             
             server.quit()
             print(f"[EMAIL] メール送信完了")
