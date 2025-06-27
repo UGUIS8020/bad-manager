@@ -198,7 +198,7 @@ def main():
         
         # Gradioアプリの作成
         with gr.Blocks(css=".gradio-container {background-color:rgb(142, 166, 4)}") as app:
-            gr.Markdown("## 鶯 アシスタント v2.0")
+            gr.Markdown("## 鶯 アシスタント v2.5")
             gr.Markdown("### ご質問・ご相談はこちらでなんでもお答えいたします")        
             
             
