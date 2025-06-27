@@ -646,3 +646,67 @@ def enhance_with_ai(question: str, answer: str) -> dict:
             "category": "その他",
             "timestamp": datetime.now().isoformat()
         }
+    
+def save_response_data(message, bot_message, user_info, cached_result, processing_time, vector_id_data):
+    """
+    回答データをDynamoDBに保存する関数
+    
+    Args:
+        message: ユーザーの質問
+        bot_message: AI/キャッシュからの回答
+        user_info: ユーザー情報
+        cached_result: キャッシュ検索結果
+        processing_time: 処理時間
+        vector_id_data: ベクトルID情報のディクショナリ
+                       {'cache_vector_id': str, 'saved_vector_id': str}
+    """
+    print("[SAVE] データ保存処理開始...")
+    
+    try:
+        # 保存データの整合性チェック
+        if not message or not bot_message:
+            print("[SAVE] 警告: メッセージまたは回答が空です")
+        
+        if processing_time is None:
+            processing_time = 0.0
+            print("[SAVE] 警告: processing_timeがNoneのため0.0に設定")
+        
+        # キャッシュヒット時と新規回答時で保存処理を分ける
+        if cached_result.get("found"):
+            print(f"[SAVE] キャッシュヒット時の保存処理 (cache_vector_id: {vector_id_data.get('cache_vector_id')})")
+            save_result = save_to_dynamodb_async(
+                message,
+                bot_message,
+                user_info,
+                cached_result,
+                processing_time,
+                cache_vector_id=vector_id_data.get('cache_vector_id'),  # キャッシュ時のベクトルID
+                saved_vector_id=None  # 新規生成ではないのでNone
+            )
+        else:
+            print(f"[SAVE] 新規回答時の保存処理 (saved_vector_id: {vector_id_data.get('saved_vector_id')})")
+            save_result = save_to_dynamodb_async(
+                message,
+                bot_message,
+                user_info,
+                cached_result,
+                processing_time,
+                cache_vector_id=None,  # キャッシュではないのでNone
+                saved_vector_id=vector_id_data.get('saved_vector_id')  # 新規生成時のベクトルID
+            )
+
+        if save_result and save_result.get('success'):
+            print(f"[SAVE] 保存成功: ID={save_result.get('chat_id', 'N/A')}")
+            return True
+        else:
+            error_msg = save_result.get('error', '不明なエラー') if save_result else 'save_result がNone'
+            print(f"[SAVE] 保存失敗: {error_msg}")
+            return False
+            
+    except Exception as save_error:
+        print(f"[SAVE] 保存処理でエラー発生: {str(save_error)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+

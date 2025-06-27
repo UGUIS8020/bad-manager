@@ -4,6 +4,7 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from badminton_utils import search_cached_answer_badminton, store_response_in_pinecone_badminton, store_response_in_pinecone
 import signal
 import sys
+from badminton_utils import save_response_data, generate_new_response
 from badminton_engine import chat_badminton_simple, get_badminton_index
 import os
 from datetime import datetime
@@ -159,7 +160,13 @@ badminton_index = None
 
 #     return "", chat_history
 
+
+
+
 def respond_badminton(message, chat_history):      
+    """
+    バドミントンに関する質問に応答するメイン関数
+    """
     global badminton_index    
     
     print("=" * 60)
@@ -172,10 +179,6 @@ def respond_badminton(message, chat_history):
         'ip': 'Webアプリ経由',
         'timestamp': datetime.now().isoformat()
     }
-    
-    # ===== 修正1: メール機能をコメントアウトまたは削除 =====
-    # print("[EMAIL] 質問通知メール送信中...")
-    # send_email_async(message, user_info)
 
     # ChatMessageHistory オブジェクトに現在の履歴を追加
     print("[BADMINTON] 履歴変換開始...")
@@ -197,99 +200,51 @@ def respond_badminton(message, chat_history):
     
     print(f"[BADMINTON] 履歴変換完了: {len(history.messages)}メッセージ")
 
-    # 1. バドミントン専用キャッシュ検索
+    # キャッシュ検索
     print("[BADMINTON] キャッシュ検索開始...")    
     cached_result = search_cached_answer_badminton(message)
     print(f"[BADMINTON] キャッシュ検索結果: {cached_result}")
 
-    # ===== 修正2: processing_time変数を追加 =====
-    processing_time = None
-
+    # 回答生成またはキャッシュ取得
     if cached_result.get("found"):
+        # キャッシュヒット
         bot_message = cached_result.get("text", "") or cached_result.get("answer") or "回答が見つかりませんでした"
-        print(f"[BADMINTON] キャッシュヒット！(類似度: {cached_result.get('similarity_score', 0):.3f}, ID: {cached_result.get('vector_id', 'N/A')})")
+        processing_time = 0.0
+        cache_vector_id = cached_result.get('vector_id')
+        saved_vector_id = None
+        
+        print(f"[BADMINTON] キャッシュヒット！")
+        print(f"[BADMINTON] 類似度: {cached_result.get('similarity_score', 0):.3f}")
+        print(f"[BADMINTON] キャッシュベクトルID: {cache_vector_id}")
         print(f"[BADMINTON] キャッシュ回答長: {len(bot_message)}文字")
-        # ===== 修正3: キャッシュの場合の処理時間設定 =====
-        processing_time = 0
+        
     else:
+        # 新規回答生成
         print("[BADMINTON] キャッシュミス -> 新規回答生成を実行")
-        print(f"[BADMINTON] 新規回答生成中: {message[:50]}...")
-        
-        # プロンプト作成
-        print("[BADMINTON] プロンプト作成中...")
-        prompt = f"""
-        あなたはバドミントンサークル「鶯（うぐいす）」のアシスタントです。
-        サークルメンバーや参加希望者からの質問に、自然な口調で回答してください。
+        bot_message, processing_time, saved_vector_id = generate_new_response(message, history, badminton_index)
+        cache_vector_id = None
 
-        ## 回答の基本
-        - 質問に直接的に答えることを最優先にする
-        - 親しみやすい敬語で、適度に詳しく実用的に回答する
-        - 初心者にも分かりやすく、具体的な情報を含めて説明する
-        - 必要に応じて背景情報や実践的なアドバイスを2-3文で補足する
-        - 関連するリンクがあれば自然に紹介する
-        - 文末は質問を促すフレーズを必ず入れる必要はなく、内容に応じて自然に締めくくる
-
-        質問: {message}
-        """
-        
-        print(f"[BADMINTON] プロンプト作成完了: {len(prompt)}文字")
-        print("[BADMINTON] AI回答生成開始...")
-        
-        try:
-            # 開始時刻記録
-            import time
-            start_time = time.time()
-            
-            # 回答生成（グローバルインデックス使用）
-            print("[BADMINTON] chat_badminton_simple 呼び出し中...")
-            bot_message = chat_badminton_simple(prompt, history, badminton_index)
-            
-            # 完了時刻計算
-            end_time = time.time()
-            processing_time = end_time - start_time
-            
-            print(f"[BADMINTON] AI回答生成完了!")
-            print(f"[BADMINTON] 処理時間: {processing_time:.2f}秒")
-            print(f"[BADMINTON] 生成回答長: {len(bot_message)}文字")
-            print(f"[BADMINTON] 回答プレビュー: {bot_message[:100]}...")
-            
-        except Exception as e:
-            print(f"[BADMINTON] AI回答生成エラー: {str(e)}")
-            print(f"[BADMINTON] エラータイプ: {type(e).__name__}")
-            import traceback
-            print(f"[BADMINTON] スタックトレース:")
-            traceback.print_exc()
-            
-            bot_message = f"""
-            申し訳ございませんが、現在システムに問題が発生しています。
-            
-            もしバドミントンに関するお手伝いが必要でしたら、
-            少し時間をおいて再度お試しください。
-            
-            サークルの練習は毎週火曜・木曜 19:00-21:00 で行っています！
-            
-            エラー: {str(e)}
-            """
-            # ===== 修正4: エラー時の処理時間設定 =====
-            processing_time = 0
-
-        # 4. バドミントン専用Pineconeに保存
-        print("[BADMINTON] Pinecone保存処理...")
-        print("[BADMINTON] 注意: Pinecone保存は現在無効化されています")
-        store_result = store_response_in_pinecone_badminton(message, bot_message)
-        if store_result:
-            print("[BADMINTON] 新規回答を正常にPineconeに保存しました")
-
-    # ===== 修正5: DynamoDB保存処理を追加 =====
-    print("[DYNAMODB] 質問・回答データ保存中...")
-    save_result = save_to_dynamodb_async(message, bot_message, user_info, cached_result, processing_time)
+    # データ保存
+    vector_id_data = {
+        'cache_vector_id': cache_vector_id,
+        'saved_vector_id': saved_vector_id
+    }
     
-    if save_result.get('success'):
-        print(f"[DYNAMODB] 保存成功: ID={save_result['chat_id']}")
+    save_success = save_response_data(
+        message, 
+        bot_message, 
+        user_info, 
+        cached_result, 
+        processing_time, 
+        vector_id_data
+    )
+    
+    if save_success:
+        print("[BADMINTON] データ保存完了")
     else:
-        print(f"[DYNAMODB] 保存失敗: {save_result.get('error')}")
+        print("[BADMINTON] データ保存に問題が発生しました")
 
-    # 新しい形式でチャット履歴を更新
+    # チャット履歴更新
     print("[BADMINTON] 履歴更新開始...")
     
     if not chat_history:
@@ -317,6 +272,87 @@ def respond_badminton(message, chat_history):
 
     return "", chat_history
 
+def generate_new_response(message, history, badminton_index):
+    """
+    新規回答を生成し、Pineconeに保存する関数
+    
+    Returns:
+        tuple: (bot_message, processing_time, saved_vector_id)
+    """
+    print("[GENERATE] 新規回答生成開始...")
+    
+    # プロンプト作成
+    print("[GENERATE] プロンプト作成中...")
+    prompt = f"""
+    あなたはバドミントンサークル「鶯（うぐいす）」のアシスタントです。
+    サークルメンバーや参加希望者からの質問に、自然な口調で回答してください。
+
+    ## 回答の基本
+    - 質問に直接的に答えることを最優先にする
+    - 親しみやすい敬語で、適度に詳しく実用的に回答する
+    - 初心者にも分かりやすく、具体的な情報を含めて説明する
+    - 必要に応じて背景情報や実践的なアドバイスを2-3文で補足する
+    - 関連するリンクがあれば自然に紹介する
+    - 文末は質問を促すフレーズを必ず入れる必要はなく、内容に応じて自然に締めくくる
+
+    質問: {message}
+    """
+    
+    print(f"[GENERATE] プロンプト作成完了: {len(prompt)}文字")
+    
+    try:
+        # 開始時刻記録
+        import time
+        start_time = time.time()
+        
+        # 回答生成
+        print("[GENERATE] AI回答生成中...")
+        bot_message = chat_badminton_simple(prompt, history, badminton_index)
+        
+        # 完了時刻計算
+        end_time = time.time()
+        processing_time = round(end_time - start_time, 2)
+        
+        print(f"[GENERATE] AI回答生成完了!")
+        print(f"[GENERATE] 処理時間: {processing_time}秒")
+        print(f"[GENERATE] 生成回答長: {len(bot_message)}文字")
+        print(f"[GENERATE] 回答プレビュー: {bot_message[:100]}...")
+        
+        # Pineconeに保存
+        print("[GENERATE] Pinecone保存処理開始...")
+        saved_vector_id = None
+        try:
+            store_result = store_response_in_pinecone_badminton(message, bot_message)
+            
+            if store_result and isinstance(store_result, dict):
+                saved_vector_id = store_result.get('vector_id') or store_result.get('id')
+                print(f"[GENERATE] Pinecone保存成功: ID={saved_vector_id}")
+            else:
+                print("[GENERATE] Pinecone保存失敗: 戻り値が不正")
+                
+        except Exception as pinecone_error:
+            print(f"[GENERATE] Pinecone保存エラー: {str(pinecone_error)}")
+        
+        return bot_message, processing_time, saved_vector_id
+        
+    except Exception as e:
+        print(f"[GENERATE] AI回答生成エラー: {str(e)}")
+        print(f"[GENERATE] エラータイプ: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        
+        error_message = f"""
+        申し訳ございませんが、現在システムに問題が発生しています。
+        
+        もしバドミントンに関するお手伝いが必要でしたら、
+        少し時間をおいて再度お試しください。
+        
+        サークルの練習は毎週火曜・木曜 19:00-21:00 で行っています！
+        
+        エラー: {str(e)}
+        """
+        
+        return error_message, 0.0, None
 
 
 def signal_handler(sig, frame):
