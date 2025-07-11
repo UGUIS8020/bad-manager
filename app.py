@@ -225,7 +225,7 @@ def main():
 
         app.launch(
             server_name="0.0.0.0", 
-            server_port=port,
+            server_port=7861,            
             quiet=False,
             share=False
         )
