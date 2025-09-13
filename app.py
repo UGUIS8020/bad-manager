@@ -201,7 +201,6 @@ def main():
             gr.Markdown("## 鶯 アシスタント v2.5")
             gr.Markdown("### ご質問・ご相談はこちらでなんでもお答えいたします")        
             
-            
             chatbot = gr.Chatbot(
                 autoscroll=True,
                 height=500,
@@ -213,20 +212,19 @@ def main():
                 label="質問・相談"
             )
             
-            # clear = gr.ClearButton([msg, chatbot])
             msg.submit(respond_badminton, [msg, chatbot], [msg, chatbot])
         
-        print("バドミントンチャット: http://127.0.0.1:7860")
+        port = int(os.getenv("PORT", 7861))
+
+        print(f"バドミントンチャット: http://127.0.0.1:{port}")
         print("=" * 60)
         print("サーバーが起動しました")
         print("Ctrl+C で終了")
 
-        port = int(os.getenv("PORT", 7860))
-
+        # シンプルな起動設定
         app.launch(
-            server_name="0.0.0.0", 
-            server_port=7861,            
-            quiet=False,
+            server_name="0.0.0.0",
+            server_port=port,
             share=False
         )
             
