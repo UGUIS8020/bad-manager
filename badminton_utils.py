@@ -92,61 +92,52 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
         }
 
     
-def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.84) -> Dict[str, Any]:
+def search_cached_answer_badminton(query, qdrant_client):
+    """Qdrantキャッシュから類似質問を検索"""
     try:
         print("[BADMINTON] Qdrantキャッシュ検索開始...")
-
-        qdrant_client = get_qdrant_client()
-        question_embedding = get_embedding_badminton(question)
-
-        if not question_embedding:
-            raise ValueError("埋め込みベクトルが生成されませんでした")
-
-        # Qdrantで検索
-        search_results = qdrant_client.search(
-            collection_name="badminton-cache",
-            query_vector=question_embedding,
-            limit=5
+        
+        # OpenAIで埋め込みベクトル生成
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.embeddings.create(
+            input=query,
+            model="text-embedding-3-small"
         )
-
-        print(f"[BADMINTON] 類似度スコア一覧:")
-        for i, result in enumerate(search_results):
-            question_preview = result.payload.get("question", "")[:30]
-            print(f"  {i+1}. Score: {result.score:.3f}, ID: {result.id}, Question: '{question_preview}...'")
-
-        print(f"[BADMINTON] キャッシュ検索実行: {len(search_results)} 件取得")
-
-        for i, result in enumerate(search_results):
-            print(f"  - 候補{i+1}: ID={result.id}, 類似度={result.score:.3f}, 質問={result.payload.get('question', '')[:20]}...")
-
-        # デバッグコード
-        if search_results:
-            best_score = search_results[0].score
-            print(f"[DEBUG] 最高スコア: {best_score}, しきい値: {similarity_threshold}")
-            print(f"[DEBUG] 比較結果: {best_score >= similarity_threshold}")
+        query_embedding = response.data[0].embedding
+        
+        # Qdrantで類似検索
+        search_results = qdrant_client.query_points(
+            collection_name="badminton-cache",
+            query=query_embedding,
+            limit=3,
+            with_payload=True,
+            score_threshold=0.85
+        )
+        
+        if search_results and hasattr(search_results, 'points') and len(search_results.points) > 0:
+            best_match = search_results.points[0]
+            print(f"[BADMINTON] ベストマッチ発見: Score={best_match.score:.3f}, ID={best_match.id}")
             
-            if best_score >= similarity_threshold:
-                best_match = search_results[0]
-                print(f"[BADMINTON] キャッシュヒット！（類似度: {best_match.score:.3f}, ID: {best_match.id}）")
-
+            if best_match.score >= 0.85:
+                # ★ ここを修正: 'answer' → 'text'
+                answer_text = best_match.payload.get('text', '回答が見つかりませんでした')
+                
                 return {
-                    "found": True,
-                    "text": best_match.payload.get('text', ''),
-                    "similarity_score": best_match.score,
-                    "category": best_match.payload.get('category'),
-                    "difficulty_level": best_match.payload.get('difficulty_level'),
-                    "cached_timestamp": best_match.payload.get('timestamp'),
-                    "vector_id": str(best_match.id)
+                    'found': True,
+                    'answer': answer_text,  # ← 'text'キーから取得した値
+                    'score': best_match.score,
+                    'vector_id': best_match.id
                 }
-
-        print(f"[BADMINTON] キャッシュミス（しきい値 {similarity_threshold:.2f} 未満）")
-        return {"found": False}
-
+        
+        print("[BADMINTON] 類似質問が見つかりませんでした")
+        return {'found': False}
+        
     except Exception as e:
         print(f"[ERROR] キャッシュ検索中にエラー発生: {e}")
         import traceback
         traceback.print_exc()
-        return {"found": False}
+        return {'found': False}
 
 def get_badminton_statistics() -> Dict[str, Any]:
     try:
@@ -484,16 +475,19 @@ def store_response_in_qdrant(question, answer, collection_name=CACHE_COLLECTION_
         print(f"質問の埋め込みベクトル生成完了 (長さ: {len(question_embedding)})")
 
         # 保存前にキャッシュ類似チェック（重複防止）
-        search_results = qdrant_client.search(
+        search_results = qdrant_client.query_points(  # ← ここを修正
             collection_name=collection_name,
-            query_vector=question_embedding,
-            limit=5
+            query=question_embedding,  # ← query_vector → query
+            limit=5,
+            with_payload=True  # ← 追加
         )
         
-        for result in search_results:
-            if result.score >= 0.95:
-                print(f"[INFO] 類似質問が既に存在（ID: {result.id}, Score: {result.score:.3f}）→ 保存をスキップ")
-                return True
+        # 結果の取得方法も修正
+        if search_results and hasattr(search_results, 'points'):  # ← 追加
+            for result in search_results.points:  # ← search_results → search_results.points
+                if result.score >= 0.95:
+                    print(f"[INFO] 類似質問が既に存在（ID: {result.id}, Score: {result.score:.3f}）→ 保存をスキップ")
+                    return True
 
         # 一意IDの生成
         unique_id = str(uuid4())

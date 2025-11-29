@@ -63,15 +63,17 @@ def chat_badminton_simple(prompt: str, history: ChatMessageHistory, qdrant_clien
             ).data[0].embedding
 
             # Qdrantで検索
-            search_results = qdrant_client.search(
+            search_results = qdrant_client.query_points(
                 collection_name="badminton",
-                query_vector=embedding,
-                limit=3
+                query=embedding,
+                limit=3,
+                with_payload=True
             )
 
             context_text = ""
-            for result in search_results:
-                context_text += result.payload.get("text", "") + "\n"
+            if search_results and hasattr(search_results, 'points'):
+                for result in search_results.points:
+                    context_text += result.payload.get("text", "") + "\n"
                 
         except Exception as e:
             print(f"[WARN] Qdrant検索失敗: {e}")

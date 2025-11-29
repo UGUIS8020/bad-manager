@@ -11,28 +11,32 @@ import boto3
 from decimal import Decimal
 from save_dynamo import save_to_dynamodb_async
 import uuid
+from qdrant_client import QdrantClient
+import time
 
 load_dotenv()
 
-# グローバル変数
 badminton_index = None
+qdrant_client = None
+MAX_HISTORY_LENGTH = 4
 
 def respond_badminton(message, chat_history):      
-    global badminton_index    
+    global badminton_index, qdrant_client
+    
+    overall_start_time = time.time()
     
     print("=" * 60)
     print("[BADMINTON] 処理開始")
     print(f"[BADMINTON] 受信メッセージ: '{message}'")
     print(f"[BADMINTON] 現在の履歴件数: {len(chat_history) if chat_history else 0}")
-    print(f"[BADMINTON] インデックス状態: {'初期化済み' if badminton_index is not None else ' 未初期化'}")
+    print(f"[BADMINTON] インデックス状態: {'初期化済み' if badminton_index is not None else '未初期化'}")
     
     user_info = {
         'ip': 'Webアプリ経由',
         'timestamp': datetime.now().isoformat()
     }
-
     
-    
+    # 履歴変換
     print("[BADMINTON] 履歴変換開始...")
     history = ChatMessageHistory()
     
@@ -47,34 +51,36 @@ def respond_badminton(message, chat_history):
                     history.add_user_message(content)
                 elif role == 'assistant':
                     history.add_ai_message(content)
-            else:
-                print(f"🏸 [BADMINTON] 警告: 履歴{i+1}が辞書形式ではありません: {type(chat_message)}")
     
     print(f"[BADMINTON] 履歴変換完了: {len(history.messages)}メッセージ")
 
-    # 1. バドミントン専用キャッシュ検索
-    print("[BADMINTON] キャッシュ検索開始...")    
-    cached_result = search_cached_answer_badminton(message)
-    print(f"[BADMINTON] キャッシュ検索結果: {cached_result}")
+    # キャッシュ検索
+    print("[BADMINTON] キャッシュ検索開始...")
+    try:
+        cached_result = search_cached_answer_badminton(message, qdrant_client)    
+        print(f"[BADMINTON] キャッシュ検索結果: {cached_result}")
+    except Exception as e:
+        print(f"[ERROR] キャッシュ検索でエラー: {e}")
+        cached_result = {"found": False}
 
-    # ===== 修正2: processing_time変数を追加 =====
     processing_time = None
-    saved_vector_id = None  # ← これを追加
+    saved_vector_id = None
 
     if cached_result.get("found"):
-        bot_message = cached_result.get("text", "") or cached_result.get("answer") or "回答が見つかりませんでした"
-        print(f"[BADMINTON] キャッシュヒット！(類似度: {cached_result.get('similarity_score', 0):.3f}, ID: {cached_result.get('saved_vector_id', 'N/A')})")
-        print(f"[BADMINTON] キャッシュ回答長: {len(bot_message)}文字")
-        # ===== 修正3: キャッシュの場合の処理時間設定 =====
-        processing_time = 0
-        saved_vector_id = None  # ← これを追加
-
+        # キャッシュヒット
+        bot_message = cached_result.get("answer") or cached_result.get("text") or "回答が見つかりませんでした"
+        processing_time = time.time() - overall_start_time
+        saved_vector_id = cached_result.get('vector_id')
+        
+        print(f"[BADMINTON] キャッシュヒット！")
+        print(f"[BADMINTON] 類似度: {cached_result.get('score', 0):.3f}")
+        print(f"[BADMINTON] 処理時間: {processing_time:.3f}秒")
+        print(f"[BADMINTON] 回答長: {len(bot_message)}文字")
     else:
+        # 新規生成
         print("[BADMINTON] キャッシュミス -> 新規回答生成を実行")
         print(f"[BADMINTON] 新規回答生成中: {message[:50]}...")
         
-        # プロンプト作成
-        print("[BADMINTON] プロンプト作成中...")
         prompt = f"""
         あなたはバドミントンサークル「鶯（うぐいす）」のアシスタントです。
         サークルメンバーや参加希望者からの質問に、自然な口調で回答してください。
@@ -90,21 +96,13 @@ def respond_badminton(message, chat_history):
         質問: {message}
         """
         
-        print(f"[BADMINTON] プロンプト作成完了: {len(prompt)}文字")
-        print("[BADMINTON] AI回答生成開始...")
-        
         try:
-            # 開始時刻記録
-            import time
             start_time = time.time()
             
-            # 回答生成（グローバルインデックス使用）
-            print("[BADMINTON] chat_badminton_simple 呼び出し中...")
+            print("[BADMINTON] AI回答生成開始...")
             bot_message = chat_badminton_simple(prompt, history, badminton_index)
             
-            # 完了時刻計算
-            end_time = time.time()
-            processing_time = end_time - start_time
+            processing_time = time.time() - start_time
             
             print(f"[BADMINTON] AI回答生成完了!")
             print(f"[BADMINTON] 処理時間: {processing_time:.2f}秒")
@@ -113,33 +111,21 @@ def respond_badminton(message, chat_history):
             
         except Exception as e:
             print(f"[BADMINTON] AI回答生成エラー: {str(e)}")
-            print(f"[BADMINTON] エラータイプ: {type(e).__name__}")
             import traceback
-            print(f"[BADMINTON] スタックトレース:")
             traceback.print_exc()
             
-            bot_message = f"""
-            申し訳ございませんが、現在システムに問題が発生しています。
-            
-            もしバドミントンに関するお手伝いが必要でしたら、
-            少し時間をおいて再度お試しください。
-            
-            サークルの練習は毎週火曜・木曜 19:00-21:00 で行っています！
-            
-            エラー: {str(e)}
-            """
-            # ===== 修正4: エラー時の処理時間設定 =====
+            bot_message = ERROR_MESSAGE_TEMPLATE.format(error=str(e))
             processing_time = 0
 
-        # 4. バドミントン専用Pineconeに保存
-        print("[BADMINTON] Pinecone保存処理...")        
+        # Qdrantに保存
+        print("[BADMINTON] Qdrant保存処理...")        
         store_result = store_response_in_pinecone_badminton(message, bot_message)
         if store_result:
-            print("[BADMINTON] 新規回答を正常にPineconeに保存しました")
-
+            print("[BADMINTON] 新規回答を正常にQdrantに保存しました")
+        
         saved_vector_id = str(uuid.uuid4()) if store_result else None
 
-    # ===== 修正5: DynamoDB保存処理を追加 =====
+    # DynamoDB保存
     print("[DYNAMODB] 質問・回答データ保存中...")
     save_result = save_to_dynamodb_async(message, bot_message, user_info, cached_result, processing_time, saved_vector_id)
     
@@ -148,30 +134,25 @@ def respond_badminton(message, chat_history):
     else:
         print(f"[DYNAMODB] 保存失敗: {save_result.get('error')}")
 
-    # 新しい形式でチャット履歴を更新
+    # チャット履歴更新
     print("[BADMINTON] 履歴更新開始...")
     
     if not chat_history:
         chat_history = []
-        print("[BADMINTON] 空の履歴を初期化")
     
     chat_history.append({"role": "user", "content": message})
     chat_history.append({"role": "assistant", "content": bot_message})
     
-    print(f"[BADMINTON] 履歴に追加: ユーザー質問 + AI回答")
     print(f"[BADMINTON] 更新後履歴件数: {len(chat_history)}")
 
     # 履歴長制限
-    MAX_HISTORY_LENGTH = 4
     if len(chat_history) > MAX_HISTORY_LENGTH:
         removed_count = len(chat_history) - MAX_HISTORY_LENGTH
         chat_history = chat_history[-MAX_HISTORY_LENGTH:]
         print(f"[BADMINTON] 履歴制限適用: {removed_count}件削除, 残り{len(chat_history)}件")
-    else:
-        print(f"[BADMINTON] 履歴制限内: {len(chat_history)}/{MAX_HISTORY_LENGTH}件")
 
-    print("[BADMINTON] 処理完了!")
-    print("[BADMINTON] 戻り値: ('', updated_chat_history)")
+    total_time = time.time() - overall_start_time
+    print(f"[BADMINTON] 処理完了! (合計: {total_time:.2f}秒)")
     print("=" * 60)
 
     return "", chat_history
@@ -191,8 +172,18 @@ def main():
     print("=" * 60)
     
     try:
+        # グローバル変数の宣言
+        global badminton_index, qdrant_client
+        
+        # Qdrantクライアントの初期化
+        print("[INFO] Qdrantクライアント初期化中...")
+        qdrant_client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY"),
+        )
+        print("[INFO] Qdrantクライアント初期化完了")
+        
         # バドミントンインデックス初期化
-        global badminton_index
         badminton_index = get_badminton_index()
         print("バドミントンインデックス初期化完了")
         
