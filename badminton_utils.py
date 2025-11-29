@@ -92,52 +92,76 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
         }
 
     
-def search_cached_answer_badminton(query, qdrant_client):
-    """Qdrantキャッシュから類似質問を検索"""
+def search_cached_answer_badminton(question, qdrant_client_param, history=None):
+    """
+    Qdrantキャッシュから類似質問を検索
+    
+    Args:
+        question: ユーザーの質問
+        qdrant_client_param: Qdrantクライアントインスタンス
+        history: 会話履歴（オプション）
+    """
     try:
+        print(f"[DEBUG] 検索質問: '{question}'")
         print("[BADMINTON] Qdrantキャッシュ検索開始...")
         
-        # OpenAIで埋め込みベクトル生成
-        from openai import OpenAI
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.embeddings.create(
-            input=query,
-            model="text-embedding-3-small"
-        )
-        query_embedding = response.data[0].embedding
+        # ベクトル化
+        question_vector = get_embedding_badminton(question)
+        print(f"[DEBUG] ベクトル長: {len(question_vector)}")
         
-        # Qdrantで類似検索
-        search_results = qdrant_client.query_points(
+        # ✅ 正しいQdrant検索（query_points を使う）
+        search_results = qdrant_client_param.query_points(
             collection_name="badminton-cache",
-            query=query_embedding,
-            limit=3,
-            with_payload=True,
-            score_threshold=0.85
+            query=question_vector,  # query_vector ではなく query
+            limit=10,
+            score_threshold=0.0,  # まず閾値なしで全件取得
+            with_payload=True
         )
         
-        if search_results and hasattr(search_results, 'points') and len(search_results.points) > 0:
-            best_match = search_results.points[0]
-            print(f"[BADMINTON] ベストマッチ発見: Score={best_match.score:.3f}, ID={best_match.id}")
-            
-            if best_match.score >= 0.85:
-                # ★ ここを修正: 'answer' → 'text'
-                answer_text = best_match.payload.get('text', '回答が見つかりませんでした')
-                
-                return {
-                    'found': True,
-                    'answer': answer_text,  # ← 'text'キーから取得した値
-                    'score': best_match.score,
-                    'vector_id': best_match.id
-                }
+        # 結果の取得
+        all_results = search_results.points if hasattr(search_results, 'points') else []
         
-        print("[BADMINTON] 類似質問が見つかりませんでした")
-        return {'found': False}
+        print(f"[DEBUG] 検索結果総数: {len(all_results)}")
+        print("[DEBUG] トップ10の類似度スコアと質問:")
+        for i, result in enumerate(all_results[:10], 1):
+            # payloadから元の質問を取得
+            payload = result.payload
+            original_q = payload.get('question', 'N/A')
+            summary = payload.get('question_summary', 'N/A')
+            category = payload.get('category', 'N/A')
+            
+            print(f"  {i}. スコア: {result.score:.4f}")
+            print(f"     元質問: {original_q[:50]}...")
+            print(f"     要約: {summary}")
+            print(f"     カテゴリ: {category}")
+            print()
+        
+        # 閾値でフィルタリング
+        threshold = 0.85
+        filtered_results = [r for r in all_results if r.score >= threshold]
+        
+        print(f"[DEBUG] 閾値{threshold}以上の結果: {len(filtered_results)}件")
+        
+        if not filtered_results:
+            print("[BADMINTON] 類似質問が見つかりませんでした")
+            return {"found": False}
+        
+        # ベストマッチを返す
+        best_match = filtered_results[0]
+        print(f"[BADMINTON] ベストマッチ発見: Score={best_match.score:.3f}, ID={best_match.id}")
+        
+        return {
+            "found": True,
+            "answer": best_match.payload.get('text') or best_match.payload.get('answer'),  # 'text' も確認
+            "score": best_match.score,
+            "vector_id": best_match.id
+        }
         
     except Exception as e:
-        print(f"[ERROR] キャッシュ検索中にエラー発生: {e}")
+        print(f"[ERROR] キャッシュ検索中にエラー: {e}")
         import traceback
         traceback.print_exc()
-        return {'found': False}
+        return {"found": False}
 
 def get_badminton_statistics() -> Dict[str, Any]:
     try:
