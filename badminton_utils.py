@@ -1,6 +1,7 @@
 from openai import OpenAI
-from pinecone import Pinecone
-import boto3  # 追加: boto3のインポートが必要
+from qdrant_client import QdrantClient
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 import os
@@ -17,14 +18,20 @@ import re
 
 load_dotenv()
 
-PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 enhancement_llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
 
-CACHE_INDEX_NAME = "badminton-cache"
+CACHE_COLLECTION_NAME = "badminton-cache"
 
 
 client = OpenAI()
+
+def get_qdrant_client():
+    """Qdrantクライアントを取得"""
+    return QdrantClient(
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY")
+    )
 
 def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
     try:
@@ -65,7 +72,7 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
 
         result = {
             "summary": extract_summary_badminton(response),
-            "keywords": extract_keywords_badminton(response),
+            "keywords": extract_keywords_badminton(question),
             "category": classify_badminton_category(question),
             "difficulty_level": assess_difficulty_level(question),
             "timestamp": datetime.now().isoformat()
@@ -87,49 +94,49 @@ def enhance_with_ai_badminton(question: str) -> Dict[str, Any]:
     
 def search_cached_answer_badminton(question: str, similarity_threshold: float = 0.84) -> Dict[str, Any]:
     try:
-        print("[BADMINTON] Pineconeキャッシュ検索開始...")
+        print("[BADMINTON] Qdrantキャッシュ検索開始...")
 
-        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        index = pc.Index("badminton-cache")
+        qdrant_client = get_qdrant_client()
         question_embedding = get_embedding_badminton(question)
 
         if not question_embedding:
             raise ValueError("埋め込みベクトルが生成されませんでした")
 
-        search_results = index.query(
-            vector=question_embedding,
-            top_k=5,
-            include_metadata=True
+        # Qdrantで検索
+        search_results = qdrant_client.search(
+            collection_name="badminton-cache",
+            query_vector=question_embedding,
+            limit=5
         )
 
         print(f"[BADMINTON] 類似度スコア一覧:")
-        for i, match in enumerate(search_results.matches):
-            question_preview = match.metadata.get("question", "")[:30]
-            print(f"  {i+1}. Score: {match.score:.3f}, ID: {match.id}, Question: '{question_preview}...'")
+        for i, result in enumerate(search_results):
+            question_preview = result.payload.get("question", "")[:30]
+            print(f"  {i+1}. Score: {result.score:.3f}, ID: {result.id}, Question: '{question_preview}...'")
 
-        print(f"[BADMINTON] キャッシュ検索実行: {len(search_results.matches)} 件取得")
+        print(f"[BADMINTON] キャッシュ検索実行: {len(search_results)} 件取得")
 
-        for i, match in enumerate(search_results.matches):
-            print(f"  - 候補{i+1}: ID={match.id}, 類似度={match.score:.3f}, 質問={match.metadata.get('question', '')[:20]}...")
+        for i, result in enumerate(search_results):
+            print(f"  - 候補{i+1}: ID={result.id}, 類似度={result.score:.3f}, 質問={result.payload.get('question', '')[:20]}...")
 
-        # ここにデバッグコードを挿入
-        if search_results.matches:
-            best_score = search_results.matches[0].score
+        # デバッグコード
+        if search_results:
+            best_score = search_results[0].score
             print(f"[DEBUG] 最高スコア: {best_score}, しきい値: {similarity_threshold}")
             print(f"[DEBUG] 比較結果: {best_score >= similarity_threshold}")
             
             if best_score >= similarity_threshold:
-                best_match = search_results.matches[0]
+                best_match = search_results[0]
                 print(f"[BADMINTON] キャッシュヒット！（類似度: {best_match.score:.3f}, ID: {best_match.id}）")
 
                 return {
                     "found": True,
-                    "text": best_match.metadata.get('text', ''),
+                    "text": best_match.payload.get('text', ''),
                     "similarity_score": best_match.score,
-                    "category": best_match.metadata.get('category'),
-                    "difficulty_level": best_match.metadata.get('difficulty_level'),
-                    "cached_timestamp": best_match.metadata.get('timestamp'),
-                    "vector_id": best_match.id
+                    "category": best_match.payload.get('category'),
+                    "difficulty_level": best_match.payload.get('difficulty_level'),
+                    "cached_timestamp": best_match.payload.get('timestamp'),
+                    "vector_id": str(best_match.id)
                 }
 
         print(f"[BADMINTON] キャッシュミス（しきい値 {similarity_threshold:.2f} 未満）")
@@ -137,24 +144,24 @@ def search_cached_answer_badminton(question: str, similarity_threshold: float = 
 
     except Exception as e:
         print(f"[ERROR] キャッシュ検索中にエラー発生: {e}")
+        import traceback
+        traceback.print_exc()
         return {"found": False}
 
 def get_badminton_statistics() -> Dict[str, Any]:
     try:
-        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        index_name = 'badminton-cache'
-        index = pc.Index(index_name)
-        stats = index.describe_index_stats()
+        qdrant_client = get_qdrant_client()
+        collection_info = qdrant_client.get_collection(CACHE_COLLECTION_NAME)
 
         return {
-            "total_qa_pairs": stats.total_vector_count,
-            "index_name": index_name,
+            "total_qa_pairs": collection_info.points_count,
+            "collection_name": CACHE_COLLECTION_NAME,
             "last_updated": datetime.now().isoformat()
         }
 
     except Exception as e:
         print(f"[ERROR] バドミントン統計取得失敗: {e}")
-        return {"total_qa_pairs": 0, "index_name": "unknown"}
+        return {"total_qa_pairs": 0, "collection_name": "unknown"}
 
 def classify_badminton_category(question: str) -> str:
     question_lower = question.lower()
@@ -221,10 +228,9 @@ def extract_keywords_badminton(question_text: str) -> List[str]:
 3. 必ず以下の形式でのみ返してください：[\"キーワード1\", \"キーワード2\", \"キーワード3\"]"""},
                 {"role": "user", "content": f"この質問から重要なキーワードを抽出してください：\n\n{question_text}"}
             ],
-            temperature=0.1  # より一貫した結果のため低めに設定
+            temperature=0.1
         )
 
-        import json
         result = followup.choices[0].message.content.strip()
         
         # デバッグ用ログ
@@ -257,14 +263,13 @@ def get_embedding_badminton(text: str) -> list:
         return []
 
 def cleanup_old_badminton_cache(days_to_keep: int = 90):
+    """古いキャッシュのクリーンアップ（Qdrantでは手動で実装が必要）"""
     try:
-        pc = Pinecone(api_key=os.getenv('PINECONE_API_KEY'))
-        index_name = 'badminton-cache'
-        index = pc.Index(index_name)
-
+        qdrant_client = get_qdrant_client()
         cutoff_date = (datetime.now() - timedelta(days=days_to_keep)).isoformat()
 
-        print(f"[BADMINTON] {days_to_keep}日より古いキャッシュをクリーンアップしました")
+        print(f"[BADMINTON] {days_to_keep}日より古いキャッシュをクリーンアップ（未実装）")
+        # Qdrantでは、scroll APIを使って古いポイントを削除する必要があります
 
     except Exception as e:
         print(f"[ERROR] バドミントンキャッシュクリーンアップ失敗: {e}")
@@ -329,22 +334,14 @@ class BadmintonScheduleManager:
             return []
     
     def get_practice_by_date(self, target_date: str) -> Optional[Dict[str, Any]]:
-        """
-        特定日の練習予定を取得
-        
-        Args:
-            target_date: 取得したい日付 (YYYY-MM-DD形式)
-            
-        Returns:
-            練習予定の詳細情報
-        """
+        """特定日の練習予定を取得"""
         try:
             print(f"[INFO] {target_date}の練習予定を検索中...")
             
             # まずGSIを試す
             try:
                 response = self.schedule_table.query(
-                    IndexName='date-index',  # GSIを使用する場合
+                    IndexName='date-index',
                     KeyConditionExpression='#date = :date',
                     ExpressionAttributeNames={
                         '#date': 'date'
@@ -406,15 +403,7 @@ class BadmintonScheduleManager:
 
 # チャットボット統合用の関数（クラス外の独立関数）
 def get_schedule_response(user_message: str) -> str:
-    """
-    ユーザーメッセージに基づいて練習スケジュール情報を返す
-    
-    Args:
-        user_message: ユーザーからのメッセージ
-        
-    Returns:
-        練習スケジュール情報のレスポンス
-    """
+    """ユーザーメッセージに基づいて練習スケジュール情報を返す"""
     try:
         schedule_manager = BadmintonScheduleManager()
         today = datetime.now().date()
@@ -427,7 +416,6 @@ def get_schedule_response(user_message: str) -> str:
             return schedule_manager.format_schedule_for_chat(practices)
         
         elif '来週' in user_message or '次週' in user_message:
-            # 来週の練習予定を取得
             days_to_next_week = 7 - today.weekday()
             practices = schedule_manager.get_upcoming_practices(days_ahead=14)
             
@@ -445,8 +433,7 @@ def get_schedule_response(user_message: str) -> str:
             return schedule_manager.format_schedule_for_chat(next_week_practices)
         
         elif '今月' in user_message or 'この月' in user_message:
-            # 修正: 今月のデータのみを正確に取得
-            practices = schedule_manager.get_upcoming_practices(days_ahead=60)  # 十分な範囲で取得
+            practices = schedule_manager.get_upcoming_practices(days_ahead=60)
             
             # 今月分のみフィルタリング
             current_month = today.month
@@ -456,7 +443,6 @@ def get_schedule_response(user_message: str) -> str:
             for practice in practices:
                 try:
                     practice_date = datetime.strptime(practice['date'], '%Y-%m-%d').date()
-                    # 今月かつ今日以降のデータのみ
                     if (practice_date.year == current_year and 
                         practice_date.month == current_month and 
                         practice_date >= today):
@@ -478,55 +464,44 @@ def get_schedule_response(user_message: str) -> str:
 
 
 def store_response_in_pinecone_badminton(question: str, answer: str) -> bool:
-    """
-    バドミントン用チャットのQAペアを Pinecone キャッシュに保存する関数。
-    """
-    return store_response_in_pinecone(
+    """バドミントン用チャットのQAペアをQdrantキャッシュに保存する関数"""
+    return store_response_in_qdrant(
         question=question,
         answer=answer,
-        index_name="badminton-cache"
+        collection_name="badminton-cache"
     )
 
-def store_response_in_pinecone(question, answer, index_name=CACHE_INDEX_NAME):
-    """
-    質問と回答のペアをPineconeに保存する関数。AIで拡張した情報も保存。
-    """
+def store_response_in_qdrant(question, answer, collection_name=CACHE_COLLECTION_NAME):
+    """質問と回答のペアをQdrantに保存する関数。AIで拡張した情報も保存。"""
     try:
-        pc = Pinecone(api_key=PINECONE_API_KEY)
-
-        # インデックスの接続確認
-        try:
-            pinecone_index = pc.Index(index_name)
-            print(f"インデックス {index_name} に接続しました")
-        except Exception as e:
-            print(f"インデックス {index_name} 接続失敗: {e}")
-            return False
+        qdrant_client = get_qdrant_client()
 
         # AI拡張情報の取得
         enhanced_data = enhance_with_ai(question, answer)
 
-        # ベクトル生成（ここで summary ではなく question を使う）
+        # ベクトル生成
         question_embedding = embedding_model.embed_query(question)
         print(f"質問の埋め込みベクトル生成完了 (長さ: {len(question_embedding)})")
 
         # 保存前にキャッシュ類似チェック（重複防止）
-        search_results = pinecone_index.query(
-            vector=question_embedding,
-            top_k=5,
-            include_metadata=True
+        search_results = qdrant_client.search(
+            collection_name=collection_name,
+            query_vector=question_embedding,
+            limit=5
         )
-        for match in search_results.matches:
-            if match.score >= 0.95:
-                print(f"[INFO] 類似質問が既に存在（ID: {match.id}, Score: {match.score:.3f}）→ 保存をスキップ")
+        
+        for result in search_results:
+            if result.score >= 0.95:
+                print(f"[INFO] 類似質問が既に存在（ID: {result.id}, Score: {result.score:.3f}）→ 保存をスキップ")
                 return True
 
         # 一意IDの生成
         unique_id = str(uuid4())
 
-        # メタデータの準備（summary は別フィールドに分ける）
+        # メタデータの準備
         metadata = {
             "text": answer,
-            "question": question,  # ← ここをsummaryではなくquestionに
+            "question": question,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "type": "chatbot_response",
             "question_summary": enhanced_data.get("question_summary", ""),
@@ -536,22 +511,26 @@ def store_response_in_pinecone(question, answer, index_name=CACHE_INDEX_NAME):
             "category": enhanced_data.get("category", "未分類")
         }
 
-        # アップサート
-        pinecone_index.upsert([
-            {
-                "id": unique_id,
-                "values": question_embedding,
-                "metadata": metadata
-            }
-        ])
+        # Qdrantにアップサート
+        qdrant_client.upsert(
+            collection_name=collection_name,
+            points=[
+                PointStruct(
+                    id=unique_id,
+                    vector=question_embedding,
+                    payload=metadata
+                )
+            ]
+        )
         print(f"オリジナル質問ベクトルをアップサート: {unique_id}")
 
-        # 類義語の処理（必要であれば）
+        # 類義語の処理
         alt_questions = enhanced_data.get("alternative_questions", [])
         original_embedding = np.array(question_embedding).reshape(1, -1)
 
         if alt_questions:
             print("===== 類義語の類似度分析 =====")
+            alt_points = []
             for i, alt_question in enumerate(alt_questions):
                 if alt_question and len(alt_question) > 5:
                     print(f"類義語 {i+1}: '{alt_question}'")
@@ -560,24 +539,33 @@ def store_response_in_pinecone(question, answer, index_name=CACHE_INDEX_NAME):
                     similarity = cosine_similarity(original_embedding, [alt_embedding])[0][0]
                     print(f"  元の質問との類似度: {similarity:.4f}")
 
-                    pinecone_index.upsert([
-                        {
-                            "id": f"{unique_id}-alt-{i}",
-                            "values": alt_embedding,
-                            "metadata": metadata
-                        }
-                    ])
+                    alt_points.append(
+                        PointStruct(
+                            id=f"{unique_id}-alt-{i}",
+                            vector=alt_embedding,
+                            payload=metadata
+                        )
+                    )
                 else:
                     print(f"類義語 {i+1}: '{alt_question}' - スキップ（短すぎ）")
+            
+            if alt_points:
+                qdrant_client.upsert(
+                    collection_name=collection_name,
+                    points=alt_points
+                )
 
-        print(f"拡張Q&AをIDで保存しました: {unique_id} (インデックス: {index_name})")
+        print(f"拡張Q&AをIDで保存しました: {unique_id} (コレクション: {collection_name})")
         return True
 
     except Exception as e:
-        print(f"Pineconeへの応答保存エラー: {e}")
+        print(f"Qdrantへの応答保存エラー: {e}")
         import traceback
         traceback.print_exc()
         return False
+
+# Pinecone互換のためのエイリアス
+store_response_in_pinecone = store_response_in_qdrant
     
 def enhance_with_ai(question: str, answer: str) -> dict:
     try:
@@ -616,7 +604,7 @@ def enhance_with_ai(question: str, answer: str) -> dict:
         print(raw)
         print("======================")
 
-        # ✅ コードブロック除去処理
+        # コードブロック除去処理
         if raw.startswith("```json"):
             raw = re.sub(r"^```json\s*|\s*```$", "", raw.strip(), flags=re.DOTALL)
 

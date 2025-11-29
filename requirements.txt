@@ -10,3 +10,4 @@ scikit-learn==1.4.2
 apscheduler==3.11.0
 boto3==1.38.37
 gradio-client==1.4.1
+qdrant-client==1.16.1

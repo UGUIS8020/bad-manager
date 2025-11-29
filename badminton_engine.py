@@ -2,7 +2,7 @@ import os
 import time
 from dotenv import load_dotenv
 from openai import OpenAI
-from pinecone import Pinecone
+from qdrant_client import QdrantClient
 from langchain_community.chat_message_histories import ChatMessageHistory
 
 # DynamoDB機能をインポート
@@ -18,13 +18,19 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def get_badminton_index():
-    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-    index = pc.Index("badminton")
-    stats = index.describe_index_stats()
-    print(f"Total vectors in badminton index: {stats.total_vector_count}")
-    return index
+    """バドミントンコレクションへの接続を取得"""
+    qdrant_client = QdrantClient(
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY")
+    )
+    
+    # コレクション情報を取得
+    collection_info = qdrant_client.get_collection("badminton")
+    print(f"Total vectors in badminton collection: {collection_info.points_count}")
+    
+    return qdrant_client
 
-def chat_badminton_simple(prompt: str, history: ChatMessageHistory, index) -> str:
+def chat_badminton_simple(prompt: str, history: ChatMessageHistory, qdrant_client) -> str:
     start_time = time.time()
     try:
         print(f"[BADMINTON] DynamoDB統合版での処理開始: {prompt}")
@@ -49,24 +55,26 @@ def chat_badminton_simple(prompt: str, history: ChatMessageHistory, index) -> st
             except Exception as e:
                 print(f"[BADMINTON] DynamoDBスケジュール取得失敗: {e}")
 
-        # ベクトル生成＆検索（既存のコード）
+        # ベクトル生成＆検索（Qdrant版）
         try:
             embedding = client.embeddings.create(
                 model="text-embedding-3-small",
                 input=[f"バドミントン: {prompt}"]
             ).data[0].embedding
 
-            search_results = index.query(
-                vector=embedding,
-                top_k=3,
-                include_metadata=True
+            # Qdrantで検索
+            search_results = qdrant_client.search(
+                collection_name="badminton",
+                query_vector=embedding,
+                limit=3
             )
 
             context_text = ""
-            for match in search_results.matches:
-                context_text += match.metadata.get("text", "") + "\n"
+            for result in search_results:
+                context_text += result.payload.get("text", "") + "\n"
+                
         except Exception as e:
-            print(f"[WARN] Pinecone検索失敗: {e}")
+            print(f"[WARN] Qdrant検索失敗: {e}")
             context_text = ""
 
         # メッセージ構成
@@ -114,4 +122,6 @@ def chat_badminton_simple(prompt: str, history: ChatMessageHistory, index) -> st
     
     except Exception as e:
         print(f"[ERROR] バドミントンチャット処理失敗: {e}")
+        import traceback
+        traceback.print_exc()
         return "申し訳ございません、現在回答を生成できません。しばらくしてから再度お試しください。"
